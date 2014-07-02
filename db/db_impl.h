@@ -144,6 +144,7 @@ class DBImpl : public DB {
   uint64_t logfile_number_;
   log::Writer* log_;
   uint32_t seed_;                // For sampling.
+  bool file_has_max_size_;
 
   // Queue of writers.
   std::deque<Writer*> writers_;

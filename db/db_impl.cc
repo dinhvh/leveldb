@@ -94,7 +94,9 @@ Options SanitizeOptions(const std::string& dbname,
   Options result = src;
   result.comparator = icmp;
   result.filter_policy = (src.filter_policy != NULL) ? ipolicy : NULL;
-  ClipToRange(&result.max_open_files,    64 + kNumNonTableCacheFiles, 50000);
+  if (result.max_open_files != 0) {
+    ClipToRange(&result.max_open_files,  64 + kNumNonTableCacheFiles, 50000);
+  }
   ClipToRange(&result.write_buffer_size, 64<<10,                      1<<30);
   ClipToRange(&result.block_size,        1<<10,                       4<<20);
   if (result.info_log == NULL) {
@@ -139,6 +141,8 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   const int table_cache_size = options_.max_open_files - kNumNonTableCacheFiles;
+  file_has_max_size_ = (options_.max_open_files != 0);
+
   table_cache_ = new TableCache(dbname_, &options_, table_cache_size);
 
   versions_ = new VersionSet(dbname_, &options_, table_cache_,
@@ -963,8 +967,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       compact->builder->Add(key, input->value());
 
       // Close output file if it is big enough
-      if (compact->builder->FileSize() >=
-          compact->compaction->MaxOutputFileSize()) {
+      if (file_has_max_size_ &&
+          compact->builder->FileSize() >=
+              compact->compaction->MaxOutputFileSize()) {
         status = FinishCompactionOutputFile(compact, input);
         if (!status.ok()) {
           break;
