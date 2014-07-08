@@ -199,6 +199,8 @@ class RandomAccessFile {
   // Safe for concurrent use by multiple threads.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
+  virtual Status Open() = 0;
+  virtual Status Close() = 0;
 
  private:
   // No copying allowed

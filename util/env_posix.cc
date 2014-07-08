@@ -73,11 +73,15 @@ class PosixRandomAccessFile: public RandomAccessFile {
  private:
   std::string filename_;
   int fd_;
-
+  pthread_mutex_t lock_;
+  int use_count_;
+  
  public:
-  PosixRandomAccessFile(const std::string& fname, int fd)
-      : filename_(fname), fd_(fd) { }
-  virtual ~PosixRandomAccessFile() { close(fd_); }
+  PosixRandomAccessFile(const std::string& fname)
+      : filename_(fname), use_count_(0) {
+        pthread_mutex_init(&lock_, NULL);
+      }
+  virtual ~PosixRandomAccessFile() { pthread_mutex_destroy(&lock_); }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const {
@@ -88,6 +92,32 @@ class PosixRandomAccessFile: public RandomAccessFile {
       // An error: return a non-ok status
       s = IOError(filename_, errno);
     }
+    return s;
+  }
+
+  Status Open() {
+    Status s;
+    pthread_mutex_lock(&lock_);
+    use_count_ ++;
+    if (use_count_ == 1) {
+      fd_ = open(filename_.c_str(), O_RDONLY);
+      if (fd_ < 0) {
+        s = IOError(filename_, errno);
+      }
+    }
+    pthread_mutex_unlock(&lock_);
+    return s;
+  }
+  
+  virtual Status Close() {
+    Status s;
+    pthread_mutex_lock(&lock_);
+    use_count_ --;
+    if (use_count_ == 0) {
+      close(fd_);
+      fd_ = -1;
+    }
+    pthread_mutex_unlock(&lock_);
     return s;
   }
 };
@@ -141,6 +171,7 @@ class MmapLimiter {
   void operator=(const MmapLimiter&);
 };
 
+#if 0
 // mmap() based random-access
 class PosixMmapReadableFile: public RandomAccessFile {
  private:
@@ -174,6 +205,7 @@ class PosixMmapReadableFile: public RandomAccessFile {
     return s;
   }
 };
+#endif
 
 class PosixWritableFile : public WritableFile {
  private:
@@ -315,10 +347,11 @@ class PosixEnv : public Env {
                                      RandomAccessFile** result) {
     *result = NULL;
     Status s;
+      /*
     int fd = open(fname.c_str(), O_RDONLY);
     if (fd < 0) {
       s = IOError(fname, errno);
-    } else if (mmap_limit_.Acquire()) {
+    } */ /*else if (mmap_limit_.Acquire()) {
       uint64_t size;
       s = GetFileSize(fname, &size);
       if (s.ok()) {
@@ -333,8 +366,8 @@ class PosixEnv : public Env {
       if (!s.ok()) {
         mmap_limit_.Release();
       }
-    } else {
-      *result = new PosixRandomAccessFile(fname, fd);
+    } else */  {
+      *result = new PosixRandomAccessFile(fname);
     }
     return s;
   }

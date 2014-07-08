@@ -76,7 +76,9 @@ Status ReadBlock(RandomAccessFile* file,
   size_t n = static_cast<size_t>(handle.size());
   char* buf = new char[n + kBlockTrailerSize];
   Slice contents;
+  file->Open();
   Status s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
+  file->Close();
   if (!s.ok()) {
     delete[] buf;
     return s;

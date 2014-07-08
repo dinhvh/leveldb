@@ -46,13 +46,20 @@ Status Table::Open(const Options& options,
 
   char footer_space[Footer::kEncodedLength];
   Slice footer_input;
+  file->Open();
   Status s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
                         &footer_input, footer_space);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    file->Close();
+    return s;
+  }
 
   Footer footer;
   s = footer.DecodeFrom(&footer_input);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    file->Close();
+    return s;
+  }
 
   // Read the index block
   BlockContents contents;
@@ -80,6 +87,7 @@ Status Table::Open(const Options& options,
   } else {
     if (index_block) delete index_block;
   }
+  file->Close();
 
   return s;
 }
