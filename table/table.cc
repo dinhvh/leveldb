@@ -46,8 +46,11 @@ Status Table::Open(const Options& options,
 
   char footer_space[Footer::kEncodedLength];
   Slice footer_input;
-  file->Open();
-  Status s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
+  Status s = file->Open();
+  if (!s.ok()) {
+    return s;
+  }
+  s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
                         &footer_input, footer_space);
   if (!s.ok()) {
     file->Close();

@@ -145,6 +145,8 @@ class Env {
   // Sleep/delay the thread for the perscribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
+  virtual void SetLowOpenFiles(bool enabled) = 0;
+
  private:
   // No copying allowed
   Env(const Env&);
@@ -200,7 +202,7 @@ class RandomAccessFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
   virtual Status Open() = 0;
-  virtual Status Close() = 0;
+  virtual void Close() = 0;
 
  private:
   // No copying allowed
