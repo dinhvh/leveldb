@@ -57,6 +57,7 @@ class Env {
   //
   // The returned file may be concurrently accessed by multiple threads.
   virtual Status NewRandomAccessFile(const std::string& fname,
+                                     bool low_open_files_mode_enabled,
                                      RandomAccessFile** result) = 0;
 
   // Create an object that writes to a new file with the specified
@@ -285,8 +286,10 @@ class EnvWrapper : public Env {
   Status NewSequentialFile(const std::string& f, SequentialFile** r) {
     return target_->NewSequentialFile(f, r);
   }
-  Status NewRandomAccessFile(const std::string& f, RandomAccessFile** r) {
-    return target_->NewRandomAccessFile(f, r);
+  Status NewRandomAccessFile(const std::string& f,
+                             bool low_open_files_mode_enabled,
+                             RandomAccessFile** r) {
+    return target_->NewRandomAccessFile(f, low_open_files_mode_enabled, r);
   }
   Status NewWritableFile(const std::string& f, WritableFile** r) {
     return target_->NewWritableFile(f, r);

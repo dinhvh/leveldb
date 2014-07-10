@@ -333,11 +333,15 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
+                                     bool low_open_files_mode_enabled,
                                      RandomAccessFile** result) {
     *result = NULL;
     Status s;
-#if 0
-    if (mmap_limit_.Acquire()) {
+    if (low_open_files_mode_enabled) {
+      RandomAccessFile* file = new PosixRandomAccessFile(fname);
+      *result = file;
+    }
+    else if (mmap_limit_.Acquire()) {
       // Open a memory map.
       s = NewRandomAccessMmapFile(fname, result);
       if (!s.ok()) {
@@ -348,9 +352,6 @@ class PosixEnv : public Env {
       RandomAccessFile* file = new PosixRandomAccessFile(fname);
       *result = file;
     }
-#endif
-    RandomAccessFile* file = new PosixRandomAccessFile(fname);
-    *result = file;
     return s;
   }
 
