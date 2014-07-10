@@ -145,8 +145,6 @@ class Env {
   // Sleep/delay the thread for the perscribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
-  virtual void SetLowOpenFiles(bool enabled) = 0;
-
  private:
   // No copying allowed
   Env(const Env&);

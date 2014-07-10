@@ -135,6 +135,9 @@ struct Options {
   // Default: NULL
   const FilterPolicy* filter_policy;
 
+  // Try to keep only one file opened per database.
+  bool low_open_files_mode_enabled;
+
   // Create an Options object with default values for all fields.
   Options();
 };

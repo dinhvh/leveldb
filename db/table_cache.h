@@ -18,7 +18,7 @@ namespace leveldb {
 
 class Env;
 
-class TableCache {
+class TableCache : public TableRandomAccessFileManager {
  public:
   TableCache(const std::string& dbname, const Options* options, int entries);
   ~TableCache();
@@ -47,11 +47,18 @@ class TableCache {
   // Evict any entry for the specified file number
   void Evict(uint64_t file_number);
 
+  virtual Status OpenFile(uint64_t file_number);
+  virtual void CloseFile(uint64_t file_number);
+
+  void ForceClose();
+
  private:
   Env* const env_;
   const std::string dbname_;
   const Options* options_;
   Cache* cache_;
+  port::Mutex mutex_;
+  RandomAccessFile* file_to_close_;
 
   Status FindTable(uint64_t file_number, uint64_t file_size, Cache::Handle**);
 };

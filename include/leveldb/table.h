@@ -17,6 +17,7 @@ struct Options;
 class RandomAccessFile;
 struct ReadOptions;
 class TableCache;
+class TableRandomAccessFileManager;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
@@ -36,7 +37,9 @@ class Table {
   //
   // *file must remain live while this Table is in use.
   static Status Open(const Options& options,
+                     TableRandomAccessFileManager* file_manager,
                      RandomAccessFile* file,
+                     uint64_t file_number,
                      uint64_t file_size,
                      Table** table);
 
@@ -58,8 +61,9 @@ class Table {
  private:
   struct Rep;
   Rep* rep_;
+  TableRandomAccessFileManager* file_manager_;
 
-  explicit Table(Rep* rep) { rep_ = rep; }
+  explicit Table(Rep* rep, TableRandomAccessFileManager* file_manager);
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&);
 
   // Calls (*handle_result)(arg, ...) with the entry found after a call
@@ -78,6 +82,14 @@ class Table {
   // No copying allowed
   Table(const Table&);
   void operator=(const Table&);
+};
+
+class TableRandomAccessFileManager {
+ public:
+  // Opens the given file.
+  virtual Status OpenFile(uint64_t file_number) = 0;
+  // Close the given file.
+  virtual void CloseFile(uint64_t file_number) = 0;
 };
 
 }  // namespace leveldb

@@ -68,35 +68,18 @@ class PosixSequentialFile: public SequentialFile {
   }
 };
 
-class PosixRandomAccessFile;
-static pthread_mutex_t s_global_lock = PTHREAD_MUTEX_INITIALIZER;
-static PosixRandomAccessFile* s_file_to_close = NULL;
-
 // pread() based random-access
 class PosixRandomAccessFile: public RandomAccessFile {
  private:
   std::string filename_;
   int fd_;
-  pthread_mutex_t lock_;
-  int use_count_;
-  bool low_open_files_mode_enabled_;
 
  public:
-  PosixRandomAccessFile(const std::string& fname,
-                        bool low_open_files_mode_enabled)
-      : filename_(fname), use_count_(0), fd_(-1),
-        low_open_files_mode_enabled_(low_open_files_mode_enabled) {
-    pthread_mutex_init(&lock_, NULL);
-  }
+  PosixRandomAccessFile(const std::string& fname)
+      : filename_(fname), fd_(-1) {}
+
   virtual ~PosixRandomAccessFile() {
-    if (!low_open_files_mode_enabled_) {
-      // In non-low open files mode, the file has been opened when created, then
-      // we close it once when freeing the object.
-      Close();
-    } else {
-      ReallyClose();
-    }
-    pthread_mutex_destroy(&lock_);
+    Close();
   }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
@@ -111,58 +94,16 @@ class PosixRandomAccessFile: public RandomAccessFile {
     return s;
   }
 
-  Status Open() {
+  virtual Status Open() {
     Status s;
-    pthread_mutex_lock(&lock_);
-    ++use_count_;
-    if (use_count_ == 1) {
-      if (fd_ != -1) {
-        pthread_mutex_lock(&s_global_lock);
-        s_file_to_close = NULL;
-        pthread_mutex_unlock(&s_global_lock);
-      } else {
-        pthread_mutex_lock(&s_global_lock);
-        if (s_file_to_close != NULL) {
-          s_file_to_close->ReallyClose();
-        }
-        s_file_to_close = NULL;
-        pthread_mutex_unlock(&s_global_lock);
-        fd_ = open(filename_.c_str(), O_RDONLY);
-        if (fd_ < 0) {
-          --use_count_;
-          s = IOError(filename_, errno);
-        }
-      }
+    fd_ = open(filename_.c_str(), O_RDONLY);
+    if (fd_ < 0) {
+      s = IOError(filename_, errno);
     }
-    pthread_mutex_unlock(&lock_);
     return s;
   }
 
   virtual void Close() {
-    pthread_mutex_lock(&lock_);
-    --use_count_;
-    if (use_count_ == 0) {
-      pthread_mutex_lock(&s_global_lock);
-      if (s_file_to_close != NULL) {
-        s_file_to_close->ReallyClose();
-      }
-      s_file_to_close = this;
-      pthread_mutex_unlock(&s_global_lock);
-    }
-    pthread_mutex_unlock(&lock_);
-  }
-
-private:
-  static void ClosePendingFile() {
-    pthread_mutex_lock(&s_global_lock);
-    if (s_file_to_close != NULL) {
-      s_file_to_close->ReallyClose();
-      s_file_to_close = NULL;
-    }
-    pthread_mutex_unlock(&s_global_lock);
-  }
-
-  void ReallyClose() {
     if (fd_ == -1) return;
     close(fd_);
     fd_ = -1;
@@ -395,9 +336,8 @@ class PosixEnv : public Env {
                                      RandomAccessFile** result) {
     *result = NULL;
     Status s;
-    if (low_open_files_mode_enabled_) {
-      *result = new PosixRandomAccessFile(fname, true);
-    } else if (mmap_limit_.Acquire()) {
+#if 0
+    if (mmap_limit_.Acquire()) {
       // Open a memory map.
       s = NewRandomAccessMmapFile(fname, result);
       if (!s.ok()) {
@@ -405,14 +345,12 @@ class PosixEnv : public Env {
       }
     } else {
       // Reached mmap limit.
-      RandomAccessFile* file = new PosixRandomAccessFile(fname, false);
-      s = file->Open();
-      if (!s.ok()) {
-        delete file;
-      } else {
-        *result = file;
-      }
+      RandomAccessFile* file = new PosixRandomAccessFile(fname);
+      *result = file;
     }
+#endif
+    RandomAccessFile* file = new PosixRandomAccessFile(fname);
+    *result = file;
     return s;
   }
 
@@ -572,10 +510,6 @@ class PosixEnv : public Env {
     usleep(micros);
   }
 
-  virtual void SetLowOpenFiles(bool enabled) {
-    low_open_files_mode_enabled_ = enabled;
-  }
-
  private:
   void PthreadCall(const char* label, int result) {
     if (result != 0) {
@@ -624,11 +558,9 @@ class PosixEnv : public Env {
 
   PosixLockTable locks_;
   MmapLimiter mmap_limit_;
-
-  bool low_open_files_mode_enabled_;
 };
 
-PosixEnv::PosixEnv() : started_bgthread_(false), low_open_files_mode_enabled_(false) {
+PosixEnv::PosixEnv() : started_bgthread_(false) {
   PthreadCall("mutex_init", pthread_mutex_init(&mu_, NULL));
   PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, NULL));
 }

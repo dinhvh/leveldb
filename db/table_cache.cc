@@ -7,6 +7,7 @@
 #include "db/filename.h"
 #include "leveldb/env.h"
 #include "leveldb/table.h"
+#include "util/mutexlock.h"
 #include "util/coding.h"
 
 namespace leveldb {
@@ -14,10 +15,14 @@ namespace leveldb {
 struct TableAndFile {
   RandomAccessFile* file;
   Table* table;
+  TableCache* table_cache;
+  int use_count;
+  port::Mutex mutex;
 };
 
 static void DeleteEntry(const Slice& key, void* value) {
   TableAndFile* tf = reinterpret_cast<TableAndFile*>(value);
+  tf->table_cache->ForceClose();
   delete tf->table;
   delete tf->file;
   delete tf;
@@ -35,7 +40,8 @@ TableCache::TableCache(const std::string& dbname,
     : env_(options->env),
       dbname_(dbname),
       options_(options),
-      cache_(NewLRUCache(entries)) {
+      cache_(NewLRUCache(entries)),
+      file_to_close_(NULL) {
 }
 
 TableCache::~TableCache() {
@@ -61,7 +67,10 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       }
     }
     if (s.ok()) {
-      s = Table::Open(*options_, file, file_size, &table);
+      s = file->Open();
+    }
+    if (s.ok()) {
+      s = Table::Open(*options_, this, file, file_number, file_size, &table);
     }
 
     if (!s.ok()) {
@@ -73,7 +82,12 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       TableAndFile* tf = new TableAndFile;
       tf->file = file;
       tf->table = table;
+      tf->use_count = 1;
+      tf->table_cache = this;
       *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
+      if (options_->low_open_files_mode_enabled) {
+        CloseFile(file_number);
+      }
     }
   }
   return s;
@@ -122,6 +136,68 @@ void TableCache::Evict(uint64_t file_number) {
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);
   cache_->Erase(Slice(buf, sizeof(buf)));
+}
+
+Status TableCache::OpenFile(uint64_t file_number) {
+  Status s;
+  char buf[sizeof(file_number)];
+  EncodeFixed64(buf, file_number);
+  Slice key(buf, sizeof(buf));
+  Cache::Handle* handle = NULL;
+  handle = cache_->Lookup(key);
+  if (handle != NULL) {
+    TableAndFile* tf = reinterpret_cast<TableAndFile*>(cache_->Value(handle));
+    MutexLock l(&tf->mutex);
+    ++tf->use_count;
+    if (tf->use_count == 1) {
+      MutexLock l(&mutex_);
+      if (file_to_close_ == tf->file) {
+        // Use same file.
+        file_to_close_ = NULL;
+      } else {
+        if (file_to_close_ != NULL) {
+          file_to_close_->Close();
+          file_to_close_ = NULL;
+        }
+        s = tf->file->Open();
+        if (!s.ok()) {
+          --tf->use_count;
+        }
+      }
+    }
+  }
+  return s;
+}
+
+void TableCache::CloseFile(uint64_t file_number) {
+  Status s;
+  char buf[sizeof(file_number)];
+  EncodeFixed64(buf, file_number);
+  Slice key(buf, sizeof(buf));
+  Cache::Handle* handle = NULL;
+  handle = cache_->Lookup(key);
+  if (handle != NULL) {
+    TableAndFile* tf = reinterpret_cast<TableAndFile*>(cache_->Value(handle));
+    MutexLock l(&tf->mutex);
+    --tf->use_count;
+    if (tf->use_count == 0) {
+      MutexLock l(&mutex_);
+      if (file_to_close_ != NULL) {
+        file_to_close_->Close();
+        file_to_close_ = NULL;
+      }
+      file_to_close_ = tf->file;
+    }
+  }
+}
+
+void TableCache::ForceClose()
+{
+  MutexLock l(&mutex_);
+  if (file_to_close_ != NULL) {
+    file_to_close_->Close();
+    file_to_close_ = NULL;
+  }
 }
 
 }  // namespace leveldb

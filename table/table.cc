@@ -27,6 +27,7 @@ struct Table::Rep {
   Options options;
   Status status;
   RandomAccessFile* file;
+  uint64_t file_number;
   uint64_t cache_id;
   FilterBlockReader* filter;
   const char* filter_data;
@@ -35,8 +36,13 @@ struct Table::Rep {
   Block* index_block;
 };
 
+Table::Table(Rep* rep, TableRandomAccessFileManager* file_manager)
+    : rep_(rep), file_manager_(file_manager) {}
+
 Status Table::Open(const Options& options,
+                   TableRandomAccessFileManager* file_manager,
                    RandomAccessFile* file,
+                   uint64_t file_number,
                    uint64_t size,
                    Table** table) {
   *table = NULL;
@@ -46,21 +52,21 @@ Status Table::Open(const Options& options,
 
   char footer_space[Footer::kEncodedLength];
   Slice footer_input;
-  Status s = file->Open();
+  Status s = file_manager->OpenFile(file_number);
   if (!s.ok()) {
     return s;
   }
   s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
-                        &footer_input, footer_space);
+                 &footer_input, footer_space);
   if (!s.ok()) {
-    file->Close();
+    file_manager->CloseFile(file_number);
     return s;
   }
 
   Footer footer;
   s = footer.DecodeFrom(&footer_input);
   if (!s.ok()) {
-    file->Close();
+    file_manager->CloseFile(file_number);
     return s;
   }
 
@@ -68,7 +74,8 @@ Status Table::Open(const Options& options,
   BlockContents contents;
   Block* index_block = NULL;
   if (s.ok()) {
-    s = ReadBlock(file, ReadOptions(), footer.index_handle(), &contents);
+    s = ReadBlock(file_manager, file, file_number, ReadOptions(),
+                  footer.index_handle(), &contents);
     if (s.ok()) {
       index_block = new Block(contents);
     }
@@ -80,17 +87,18 @@ Status Table::Open(const Options& options,
     Rep* rep = new Table::Rep;
     rep->options = options;
     rep->file = file;
+    rep->file_number = file_number;
     rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
     rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
     rep->filter_data = NULL;
     rep->filter = NULL;
-    *table = new Table(rep);
+    *table = new Table(rep, file_manager);
     (*table)->ReadMeta(footer);
   } else {
     if (index_block) delete index_block;
   }
-  file->Close();
+  file_manager->CloseFile(file_number);
 
   return s;
 }
@@ -104,7 +112,8 @@ void Table::ReadMeta(const Footer& footer) {
   // it is an empty block.
   ReadOptions opt;
   BlockContents contents;
-  if (!ReadBlock(rep_->file, opt, footer.metaindex_handle(), &contents).ok()) {
+  if (!ReadBlock(file_manager_, rep_->file, rep_->file_number, opt,
+                 footer.metaindex_handle(), &contents).ok()) {
     // Do not propagate errors since meta info is not needed for operation
     return;
   }
@@ -132,7 +141,8 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
   // requiring checksum verification in Table::Open.
   ReadOptions opt;
   BlockContents block;
-  if (!ReadBlock(rep_->file, opt, filter_handle, &block).ok()) {
+  if (!ReadBlock(file_manager_, rep_->file, rep_->file_number, opt,
+                 filter_handle, &block).ok()) {
     return;
   }
   if (block.heap_allocated) {
@@ -166,6 +176,7 @@ Iterator* Table::BlockReader(void* arg,
                              const ReadOptions& options,
                              const Slice& index_value) {
   Table* table = reinterpret_cast<Table*>(arg);
+  TableRandomAccessFileManager* file_manager = table->file_manager_;
   Cache* block_cache = table->rep_->options.block_cache;
   Block* block = NULL;
   Cache::Handle* cache_handle = NULL;
@@ -187,7 +198,8 @@ Iterator* Table::BlockReader(void* arg,
       if (cache_handle != NULL) {
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
       } else {
-        s = ReadBlock(table->rep_->file, options, handle, &contents);
+        s = ReadBlock(file_manager, table->rep_->file, table->rep_->file_number,
+                      options, handle, &contents);
         if (s.ok()) {
           block = new Block(contents);
           if (contents.cachable && options.fill_cache) {
@@ -197,7 +209,8 @@ Iterator* Table::BlockReader(void* arg,
         }
       }
     } else {
-      s = ReadBlock(table->rep_->file, options, handle, &contents);
+      s = ReadBlock(file_manager, table->rep_->file, table->rep_->file_number,
+                    options, handle, &contents);
       if (s.ok()) {
         block = new Block(contents);
       }

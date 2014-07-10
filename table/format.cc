@@ -7,6 +7,7 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "table/block.h"
+#include "table.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 
@@ -63,7 +64,9 @@ Status Footer::DecodeFrom(Slice* input) {
   return result;
 }
 
-Status ReadBlock(RandomAccessFile* file,
+Status ReadBlock(TableRandomAccessFileManager* file_manager,
+                 RandomAccessFile* file,
+                 uint64_t file_number,
                  const ReadOptions& options,
                  const BlockHandle& handle,
                  BlockContents* result) {
@@ -76,13 +79,13 @@ Status ReadBlock(RandomAccessFile* file,
   size_t n = static_cast<size_t>(handle.size());
   char* buf = new char[n + kBlockTrailerSize];
   Slice contents;
-  Status s = file->Open();
+  Status s = file_manager->OpenFile(file_number);
   if (!s.ok()) {
     delete[] buf;
     return s;
   }
   s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
-  file->Close();
+  file_manager->CloseFile(file_number);
   if (!s.ok()) {
     delete[] buf;
     return s;

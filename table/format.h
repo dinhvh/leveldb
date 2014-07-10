@@ -16,6 +16,7 @@ namespace leveldb {
 class Block;
 class RandomAccessFile;
 struct ReadOptions;
+class TableRandomAccessFileManager;
 
 // BlockHandle is a pointer to the extent of a file that stores a data
 // block or a meta block.
@@ -91,7 +92,9 @@ struct BlockContents {
 
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
-extern Status ReadBlock(RandomAccessFile* file,
+extern Status ReadBlock(TableRandomAccessFileManager* file_manager,
+                        RandomAccessFile* file,
+                        uint64_t file_number,
                         const ReadOptions& options,
                         const BlockHandle& handle,
                         BlockContents* result);
