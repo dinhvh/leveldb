@@ -7,7 +7,7 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "table/block.h"
-#include "table.h"
+#include "leveldb/table.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 
